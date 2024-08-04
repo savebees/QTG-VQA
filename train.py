@@ -7,7 +7,7 @@ import argparse
 import time
 import logging
 from termcolor import colored
-os.environ["CUDA_VISIBLE_DEVICES"]="0"
+os.environ["CUDA_VISIBLE_DEVICES"]="0,1"
 from torch.utils.data.distributed import DistributedSampler
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)-8s %(message)s')
 logFormatter = logging.Formatter('%(asctime)s %(levelname)-8s %(message)s')
@@ -133,7 +133,8 @@ def train(cfg, args):
                     exp_name=cfg.exp_name))
             sys.stdout.flush()
         sys.stdout.write("\n")
-        optimizer = step_decay(cfg, optimizer)
+        if (epoch + 1) % 10 == 0:
+            optimizer = step_decay(cfg, optimizer)
         sys.stdout.flush()
         logging.info(
             "Epoch = {:d}, Sum Loss = {:.4f}, Avg Loss = {:.4f}, CE Loss = {:.4f}, Recon Loss = {:.4f}, Avg Acc = {:.4f}".format(
