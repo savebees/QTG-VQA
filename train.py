@@ -84,7 +84,7 @@ def train(cfg, args):
         train_accuracy = 0
         for i, batch in enumerate(iter(train_loader)):
             progress = epoch + i / len(train_loader)
-            _, answers, ans_candidates, batch_clips_data, question = [todevice(x, device) for x in batch]
+            _, _, answers, ans_candidates, batch_clips_data, question = [todevice(x, device) for x in batch]
             batch_size = batch_clips_data.shape[0]
             feat_dim = batch_clips_data.shape[-1]
             num_ans = ans_candidates.shape[1] 
@@ -133,21 +133,22 @@ def train(cfg, args):
                     exp_name=cfg.exp_name))
             sys.stdout.flush()
         sys.stdout.write("\n")
-        if (epoch + 1) % 10 == 0:
-            optimizer = step_decay(cfg, optimizer)
+        optimizer = step_decay(cfg, optimizer)
         sys.stdout.flush()
-        logging.info("Epoch = %s   avg_loss = %.3f    avg_acc = %.3f" % (epoch, avg_loss, train_accuracy))
-
-        if (epoch+1)%10==0:
-            ckpt_dir = os.path.join(cfg.dataset.save_dir, 'ckpt')
-            if not os.path.exists(ckpt_dir):
-                os.makedirs(ckpt_dir)
-            else:
-                assert os.path.isdir(ckpt_dir)
-            save_checkpoint(epoch, tempaligner, optimizer, model_kwargs_tosave, os.path.join( ckpt_dir, 'tempaligner_{}.pt'.format(epoch) ) )
-            save_checkpoint(epoch, semanticaligner, optimizer, None, os.path.join( ckpt_dir, 'semanticaligner_{}.pt'.format(epoch) ) )
-            sys.stdout.write('\n >>>>>> save to %s <<<<<< \n' % (ckpt_dir))
-            sys.stdout.flush()
+        logging.info(
+            "Epoch = {:d}, Sum Loss = {:.4f}, Avg Loss = {:.4f}, CE Loss = {:.4f}, Recon Loss = {:.4f}, Avg Acc = {:.4f}".format(
+                epoch, total_loss, avg_loss, avg_ce_loss, avg_recon_loss, train_accuracy
+            )
+        )
+        ckpt_dir = os.path.join(cfg.dataset.save_dir, 'ckpt')
+        if not os.path.exists(ckpt_dir):
+            os.makedirs(ckpt_dir)
+        else:
+            assert os.path.isdir(ckpt_dir)
+        save_checkpoint(epoch, tempaligner, optimizer, model_kwargs_tosave, os.path.join(ckpt_dir, 'tempaligner_{}.pt'.format(epoch)))
+        save_checkpoint(epoch, semanticaligner, optimizer, None, os.path.join(ckpt_dir, 'semanticaligner_{}.pt'.format(epoch)))
+        sys.stdout.write('\n >>>>>> save to %s <<<<<< \n' % ckpt_dir)
+        sys.stdout.flush()
 
 
 

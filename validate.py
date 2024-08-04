@@ -25,10 +25,10 @@ def validate(cfg, tempaligner, semanticaligner, clip_model, data, device, write_
     all_preds = []
     gts = []
     v_ids = []
-    q_ids = []
+    r_ids = []
     with torch.no_grad():
         for batch in tqdm(data, total=len(data)):
-            _, answers, ans_candidates, batch_clips_data, question = [todevice(x, device) for x in batch]
+            record_id, video_idx, answers, ans_candidates, batch_clips_data, question = [todevice(x, device) for x in batch]
             if cfg.train.batch_size == 1:
                 answers = answers.to(device)
             else:
@@ -52,26 +52,10 @@ def validate(cfg, tempaligner, semanticaligner, clip_model, data, device, write_
             preds = torch.argmax(logits.view(batch_size, 4), dim=1)
             agreeings = (preds == answers)
             if write_preds:
-                if cfg.dataset.question_type not in ['action', 'transition', 'count']:
-                    preds = logits.argmax(1)
-                if cfg.dataset.question_type in ['action', 'transition']:
-                    answer_vocab = data.vocab['question_answer_idx_to_token']
-                else:
-                    answer_vocab = data.vocab['answer_idx_to_token']
-                for predict in preds:
-                    if cfg.dataset.question_type in ['count', 'transition', 'action']:
-                        all_preds.append(predict.item())
-                    else:
-                        all_preds.append(answer_vocab[predict.item()])
-                for gt in answers:
-                    if cfg.dataset.question_type in ['count', 'transition', 'action']:
-                        gts.append(gt.item())
-                    else:
-                        gts.append(answer_vocab[gt.item()])
-                for id in video_ids:
-                    v_ids.append(id.cpu().numpy())
-                for ques_id in question_ids:
-                    q_ids.append(ques_id)
+                all_preds.extend(preds.tolist())
+                gts.extend(answers.tolist())
+                r_ids.extend(record_id.tolist())
+                v_ids.extend(video_idx.tolist())
 
             total_acc += agreeings.float().sum().item()
             count += answers.size(0)
@@ -83,7 +67,7 @@ def validate(cfg, tempaligner, semanticaligner, clip_model, data, device, write_
     if not write_preds:
         return acc
     else:
-        return acc, all_preds, gts, v_ids, q_ids
+        return acc, all_preds, gts, v_ids, r_ids
 
 
 if __name__ == '__main__':
@@ -133,18 +117,31 @@ if __name__ == '__main__':
     model_dict.update(state_dict)
     tempaligner.load_state_dict(model_dict)
 
+    device = torch.device('cuda')
+    loaded_semantic = torch.load(semantic_ckpt, map_location='cpu') 
+    clip_model, clip_preprocess = clip.load("ViT-B/32", device=device)
+    clip_model.float()
+    semanticaligner = SemanticAligner().to(device)
+    semanticaligner.load_state_dict(loaded_semantic['state_dict'])
+
     if cfg.test.write_preds:
-        pass
+        acc, all_preds, gts, v_ids, r_ids = validate(cfg, tempaligner, semanticaligner, clip_model, test_loader, device, True)
+        results_file_path = os.path.join(cfg.dataset.save_dir, 'validation_results.jsonl')
+        with open(results_file_path, 'w') as f:
+            for pred, gt, vid_id, rec_id in zip(all_preds, gts, v_ids, r_ids):
+                result = {
+                    "video_id": vid_id,
+                    "record_id": rec_id,
+                    "predicted_answer": pred,
+                    "true_answer": gt
+                }
+                json.dump(result, f)
+                f.write('\n')
+        print(f'Validation accuracy: {acc:.4f}')
+        print(f'Results with predictions written to {results_file_path}')
 
     else:
-        device = torch.device('cuda')
-        loaded_semantic = torch.load(semantic_ckpt, map_location='cpu') 
-        clip_model, clip_preprocess = clip.load("ViT-B/32", device=device)
-        clip_model.float()
-        semanticaligner = SemanticAligner().to(device)
-        semanticaligner.load_state_dict(loaded_semantic['state_dict'])
-
-        acc = validate(cfg, tempaligner, semanticaligner, clip_model, test_loader, device, cfg.test.write_preds)
+        acc = validate(cfg, tempaligner, semanticaligner, clip_model, test_loader, device, False)
         sys.stdout.write('~~~~~~ Test Accuracy: {test_acc} ~~~~~~~\n'.format(
             test_acc=colored("{:.4f}".format(acc), "red", attrs=['bold'])))
         sys.stdout.flush()

@@ -35,10 +35,11 @@ def load_vocab(path):
 class VideoQADataset(Dataset):
 
     def __init__(self, answers, ans_candidates, questions, app_feature_h5, video_ids,
-                 app_feat_id_to_index):
+                 record_ids, app_feat_id_to_index):
         self.all_answers = answers
         self.all_questions = questions
         self.all_video_ids = torch.LongTensor(np.asarray(video_ids))
+        self.all_record_ids = torch.LongTensor(np.asarray(record_ids))
         self.app_feature_h5 = app_feature_h5
         self.app_feat_id_to_index = app_feat_id_to_index
         self.all_ans_candidates = ans_candidates
@@ -47,6 +48,7 @@ class VideoQADataset(Dataset):
         answer = self.all_answers[index] if self.all_answers is not None else None
         ans_candidates = self.all_ans_candidates[index]
         question = self.all_questions[index]
+        record_id = self.all_record_ids[index].item()
         video_idx = self.all_video_ids[index].item()
         app_index = self.app_feat_id_to_index[str(video_idx)]
         question_text = clip.tokenize(question) 
@@ -57,7 +59,7 @@ class VideoQADataset(Dataset):
 
         appearance_feat = torch.from_numpy(appearance_feat)
         return (
-            video_idx, answer, tokenized_prompts, appearance_feat, question_text,
+            record_id, video_idx, answer, tokenized_prompts, appearance_feat, question_text,
         )
 
     def __len__(self):
@@ -75,12 +77,14 @@ class VideoQADataLoader(DataLoader):
         questions = []
         answers = []
         video_names = []
+        record_ids = []  
         video_ids = []
         ans_candidates = []
 
         for instance in instances:
             data = json.loads(instance.strip())
             vid_id = data[1]
+            rec_id = data[0]  
             video_ids.append(vid_id)
             vid_filename = data[2]
             video_names.append(vid_filename)
@@ -91,6 +95,7 @@ class VideoQADataLoader(DataLoader):
             ans_candidates.append( candidate )
             answer_idx = data[10]
             answers.append(answer_idx)
+            record_ids.append(rec_id)  
         print('number of questions: %s' % len(questions))
 
         with h5py.File(kwargs['appearance_feat'], 'r') as app_features_file:
@@ -99,8 +104,8 @@ class VideoQADataLoader(DataLoader):
         app_feat_id_to_index = {str(id): i for i, id in enumerate(app_video_ids)}
 
         self.app_feature_h5 = kwargs.pop('appearance_feat')
-        self.dataset = VideoQADataset(answers, ans_candidates, questions, self.app_feature_h5, video_ids,
-                                      app_feat_id_to_index, 
+        self.dataset = VideoQADataset(answers, ans_candidates, questions, self.app_feature_h5, video_ids, 
+                                      record_ids, app_feat_id_to_index, 
                                       )
        
         self.batch_size = kwargs['batch_size']

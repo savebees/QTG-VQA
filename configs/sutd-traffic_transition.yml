@@ -1,6 +1,6 @@
 gpu_id: 0
 multi_gpus: False
-num_workers: 8
+num_workers: 16
 seed: 66666
 exp_name: 'sutd-traffic'
 
@@ -15,8 +15,8 @@ val:
   flag: False
 
 test:
-  write_preds: False
-
+  write_preds: True
+  
 dataset:
   name: 'sutd-traffic'
   data_dir: './data/sutd-traffic/'

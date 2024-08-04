@@ -166,10 +166,11 @@ def generate_h5(model, video_ids, num_clips, outfile, device):
                         feats = run_batch(clip, model)  # (16, 2048)
                         clip_feat.append(feats)
                 else:
+                    print(f"Error: Invalid video clip for video ID {video_id} at path {video_path}")
                     clip_feat = np.zeros(shape=(num_clips, 16, 512))
                 clip_feat = np.asarray(clip_feat)  # (8, 16, 2048)
                 if feat_dset is None:
-                    C, F, D = clip_feat.shape
+                    C, F, D = clip_feat.shape     
                     feat_dset = fd.create_dataset('appearance_features', (dataset_size, C, F, D),
                                                   dtype=np.float32)
                     feat_motion = fd.create_dataset('motion_features', (dataset_size, C, D),
@@ -271,7 +272,7 @@ if __name__ == '__main__':
         
     elif args.dataset == 'sutd-traffic':
         args.video_file = './data/annotation_file/R3_all.jsonl'
-        args.video_dir = './data/raw_videos/'
+        args.video_dir = '/home/lin/Datasets/QTG-VQA_data/raw_videos/'
         args.outfile = './data/{}/{}_{}_feat.h5'
         video_paths = sutd_traffic.load_video_paths(args)
         random.shuffle(video_paths)
