@@ -82,9 +82,17 @@ def train(cfg, args):
         total_recon_loss = 0.0
         avg_recon_loss = 0.0
         train_accuracy = 0
+        q_type_mapping = {'U': 0, 'A': 1, 'F': 2, 'R': 3, 'C': 4, 'I': 5}
+        epoch_q_type_losses = {q_type: 0.0 for q_type in q_type_mapping.keys()}
+        epoch_q_type_counts = {q_type: 0 for q_type in q_type_mapping.keys()}
+
         for i, batch in enumerate(iter(train_loader)):
             progress = epoch + i / len(train_loader)
-            _, _, answers, ans_candidates, batch_clips_data, question = [todevice(x, device) for x in batch]
+            _, _, answers, ans_candidates, batch_clips_data, question, q_types = batch
+            q_types = torch.tensor([q_type_mapping.get(q, -1) for q in q_types], dtype=torch.long).to(device)  # 使用get确保没有未映射项
+            answers, ans_candidates, batch_clips_data, question = \
+                answers.to(device), ans_candidates.to(device), batch_clips_data.to(device), question.to(device)
+
             batch_size = batch_clips_data.shape[0]
             feat_dim = batch_clips_data.shape[-1]
             num_ans = ans_candidates.shape[1] 
@@ -102,6 +110,37 @@ def train(cfg, args):
             batch_agg = np.concatenate(np.tile(np.arange(batch_size).reshape([batch_size, 1]),
                                                [1, 4])) * 4  # [0, 0, 0, 0, 0, 5, 5, 5, 5, 1, ...]
             answers_agg = tile(answers, 0, 4)
+            #if (q_types == -1).any():
+            #   print("Warning: Unmapped q_type found!")  
+            #print(f"Total q_types count in batch {i}: {len(q_types)}")  
+
+            # 基于问题类型的损失计算
+            q_type_losses = {q_type: torch.tensor(0.0, device=device) for q_type in q_type_mapping.keys()}
+            q_type_counts = {q_type: 0 for q_type in q_type_mapping.keys()}
+
+            for q_type, q_type_idx in q_type_mapping.items():
+                q_type_tensor = torch.tensor([q_type_idx], dtype=torch.long, device=device)
+                q_type_mask = (q_types == q_type_tensor).nonzero(as_tuple=True)[0]
+                #print(f"Question Type {q_type}: Count in batch = {len(q_type_mask)}")
+
+                if q_type_mask.numel() > 0:
+                    q_type_indices = torch.cat([(q_type_mask * 4 + i).unsqueeze(1) for i in range(4)], dim=1).view(-1)
+                    q_type_logits = logits[q_type_indices].view(-1, 4)   # [len(q_type_mask), 4]
+                    q_type_correct_answer = answers[q_type_mask]
+                    q_type_target_logits = torch.zeros_like(q_type_logits)
+                    for i, correct_idx in enumerate(q_type_correct_answer):
+                        q_type_target_logits[i, correct_idx] = q_type_logits[i, correct_idx]
+
+                    q_type_loss_ce = torch.max(torch.zeros_like(q_type_logits), 1.0 + q_type_logits - q_type_target_logits)
+                    q_type_loss_ce = q_type_loss_ce.sum()
+
+                    q_type_losses[q_type] += q_type_loss_ce
+                    q_type_counts[q_type] += q_type_mask.size(0)
+
+            for q_type in q_type_losses.keys():
+                epoch_q_type_losses[q_type] += q_type_losses[q_type]
+                epoch_q_type_counts[q_type] += q_type_counts[q_type]
+
             loss_ce = torch.max(torch.tensor(0.0).cuda(),
                              1.0 + logits - logits[answers_agg + torch.from_numpy(batch_agg).cuda()])
             loss_ce = loss_ce.sum()
@@ -141,6 +180,12 @@ def train(cfg, args):
                 epoch, total_loss, avg_loss, avg_ce_loss, avg_recon_loss, train_accuracy
             )
         )
+        # Calculate average loss per question type for the epoch
+        for q_type in q_type_mapping.keys():
+            total_loss = epoch_q_type_losses[q_type]
+            count = epoch_q_type_counts[q_type]
+            avg_loss = total_loss / count if count > 0 else 0
+            logging.info(f"Epoch {epoch}, Question Type {q_type}: Total Loss = {total_loss:.4f}, Count = {count}, Avg Loss = {avg_loss:.4f}")
         ckpt_dir = os.path.join(cfg.dataset.save_dir, 'ckpt')
         if not os.path.exists(ckpt_dir):
             os.makedirs(ckpt_dir)

@@ -5,6 +5,7 @@ import argparse
 import os, sys
 import json
 import pickle
+import logging
 from termcolor import colored
 os.environ["CUDA_VISIBLE_DEVICES"]="0"
 from DataLoader import VideoQADataLoader
@@ -22,13 +23,15 @@ def validate(cfg, tempaligner, semanticaligner, clip_model, data, device, write_
     semanticaligner.eval()
     print('validating...')
     total_acc, count = 0.0, 0
-    all_preds = []
-    gts = []
-    v_ids = []
-    r_ids = []
+    q_type_acc = {key: [0, 0] for key in ['U', 'A', 'F', 'R', 'C', 'I']}  
+    all_preds, gts, v_ids, r_ids, q_types = [], [], [], [], []
+
     with torch.no_grad():
         for batch in tqdm(data, total=len(data)):
-            record_id, video_idx, answers, ans_candidates, batch_clips_data, question = [todevice(x, device) for x in batch]
+            record_id, video_idx, answers, ans_candidates, batch_clips_data, question, q_type = batch
+            q_types = torch.tensor([q_type_mapping[q] for q in q_types], dtype=torch.long).to(device)
+            record_id, video_idx, answers, ans_candidates, batch_clips_data, question = \
+                record_id.to(device), video_idx.to(device), answers.to(device), ans_candidates.to(device), batch_clips_data.to(device), question.to(device)
             if cfg.train.batch_size == 1:
                 answers = answers.to(device)
             else:
@@ -51,23 +54,33 @@ def validate(cfg, tempaligner, semanticaligner, clip_model, data, device, write_
             logits = logits.to(device)
             preds = torch.argmax(logits.view(batch_size, 4), dim=1)
             agreeings = (preds == answers)
+
+            for idx, qt in enumerate(q_type):
+                q_type_acc[qt][0] += agreeings[idx].item()
+                q_type_acc[qt][1] += 1
+
             if write_preds:
                 all_preds.extend(preds.tolist())
                 gts.extend(answers.tolist())
                 r_ids.extend(record_id.tolist())
                 v_ids.extend(video_idx.tolist())
+                q_types.extend(q_type.tolist())
 
             total_acc += agreeings.float().sum().item()
             count += answers.size(0)
-            print('avg_acc=',total_acc/count)
+
         acc = total_acc / count
-        print('train set size:',count)
-        print('acc on trainset:',acc)
+        logging.info(f'Validation set size: {count}')
+        logging.info(f'Overall Accuracy on Validation set: {acc:.4f}')
+
+        for qt in q_type_acc:
+            if q_type_acc[qt][1] > 0:
+                logging.info(f'Accuracy for {qt}: {q_type_acc[qt][0] / q_type_acc[qt][1]:.4f}')
 
     if not write_preds:
-        return acc
+        return acc, q_type_acc
     else:
-        return acc, all_preds, gts, v_ids, r_ids
+        return acc, q_type_acc, all_preds, gts, v_ids, r_ids
 
 
 if __name__ == '__main__':
@@ -80,13 +93,17 @@ if __name__ == '__main__':
     assert os.path.exists(cfg.dataset.data_dir)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     cfg.dataset.save_dir = os.path.join(cfg.dataset.save_dir, cfg.exp_name)
+    logging.basicConfig(level=logging.INFO, filename=os.path.join(cfg.dataset.save_dir, 'validation_log.txt'), filemode='w')
 
     best_acc = 0.0
-    best_ckpt = None
-
+    best_ckpt = {}
+    q_types = ['U', 'A', 'F', 'R', 'C', 'I']
+    for q_type in q_types:
+        best_ckpt[q_type] = {'epoch': -1, 'accuracy': 0.0}
     checkpoint_dir = "./results/sutd-traffic/ckpt"
     cfg.dataset.appearance_feat = os.path.join(cfg.dataset.data_dir, cfg.dataset.appearance_feat.format(cfg.dataset.name))
-    for epoch in range(50):  
+
+    for epoch in range(48, 50):  
         temp_ckpt = f"{checkpoint_dir}/tempaligner_{epoch}.pt"
         semantic_ckpt = f"{checkpoint_dir}/semanticaligner_{epoch}.pt"
 
@@ -119,17 +136,25 @@ if __name__ == '__main__':
                 }
                 test_loader = VideoQADataLoader(**test_loader_kwargs)
 
-                acc = validate(cfg, tempaligner, semanticaligner, clip_model, test_loader, device, False)
-                print(f'Epoch {epoch} Validation Accuracy: {acc:.4f}')
-
+                acc, type_accs = validate(cfg, tempaligner, semanticaligner, clip_model, test_loader, device, False)
+                logging.info(f'Epoch {epoch} Validation Accuracy: {acc:.4f}')
                 if acc > best_acc:
                     best_acc = acc
-                    best_ckpt = epoch
+                    best_ckpt['Overall'] = epoch
+                for qt in q_types:
+                    if type_accs[qt][1] > 0:
+                        qt_acc = type_accs[qt][0] / type_accs[qt][1]
+                        if qt_acc > best_ckpt[qt]['accuracy']:
+                            best_ckpt[qt]['accuracy'] = qt_acc
+                            best_ckpt[qt]['epoch'] = epoch
 
-    print(f'Best Validation Accuracy: {best_acc:.4f} on epoch {best_ckpt}')
 
-    temp_ckpt = f"{checkpoint_dir}/tempaligner_{best_ckpt}.pt"
-    semantic_ckpt = f"{checkpoint_dir}/semanticaligner_{best_ckpt}.pt"
+    for qt in q_types:
+        logging.info(f'Best Accuracy for {qt}: {best_ckpt[qt]["accuracy"]:.4f} at epoch {best_ckpt[qt]["epoch"]}')
+    logging.info(f'Best Overall Accuracy: {best_acc:.4f} at epoch {best_ckpt["Overall"]}')
+    best_epoch_overall = best_ckpt['Overall']
+    temp_ckpt = f"{checkpoint_dir}/tempaligner_{best_epoch_overall}.pt"
+    semantic_ckpt = f"{checkpoint_dir}/semanticaligner_{best_epoch_overall}.pt"
 
     loaded = torch.load(temp_ckpt, map_location=device)
     model_kwargs = loaded['model_kwargs']
@@ -158,10 +183,10 @@ if __name__ == '__main__':
                 json.dump(result, f)
                 f.write('\n')
         print(f'Validation accuracy: {acc:.4f}')
-        print(f'Results with predictions written to {results_file_path}')
+        print(f'Results with prezdictions written to {results_file_path}')
 
     else:
-        acc = validate(cfg, tempaligner, semanticaligner, clip_model, test_loader, device, False)
+        acc, type_accs = validate(cfg, tempaligner, semanticaligner, clip_model, test_loader, device, False)
         sys.stdout.write('~~~~~~ Test Accuracy: {test_acc} ~~~~~~~\n'.format(
             test_acc=colored("{:.4f}".format(acc), "red", attrs=['bold'])))
         sys.stdout.flush()

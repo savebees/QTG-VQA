@@ -27,17 +27,13 @@ def load_vocab(path):
 
 
 
-
-    
-
-
-
 class VideoQADataset(Dataset):
 
     def __init__(self, answers, ans_candidates, questions, app_feature_h5, video_ids,
-                 record_ids, app_feat_id_to_index):
+                 record_ids, app_feat_id_to_index, q_types):
         self.all_answers = answers
         self.all_questions = questions
+        self.all_q_types = q_types  
         self.all_video_ids = torch.LongTensor(np.asarray(video_ids))
         self.all_record_ids = torch.LongTensor(np.asarray(record_ids))
         self.app_feature_h5 = app_feature_h5
@@ -48,6 +44,7 @@ class VideoQADataset(Dataset):
         answer = self.all_answers[index] if self.all_answers is not None else None
         ans_candidates = self.all_ans_candidates[index]
         question = self.all_questions[index]
+        q_type = self.all_q_types[index] 
         record_id = self.all_record_ids[index].item()
         video_idx = self.all_video_ids[index].item()
         app_index = self.app_feat_id_to_index[str(video_idx)]
@@ -59,7 +56,7 @@ class VideoQADataset(Dataset):
 
         appearance_feat = torch.from_numpy(appearance_feat)
         return (
-            record_id, video_idx, answer, tokenized_prompts, appearance_feat, question_text,
+            record_id, video_idx, answer, tokenized_prompts, appearance_feat, question_text, q_type
         )
 
     def __len__(self):
@@ -80,6 +77,7 @@ class VideoQADataLoader(DataLoader):
         record_ids = []  
         video_ids = []
         ans_candidates = []
+        q_types = []
 
         for instance in instances:
             data = json.loads(instance.strip())
@@ -90,6 +88,7 @@ class VideoQADataLoader(DataLoader):
             video_names.append(vid_filename)
             q_body = data[4]
             questions.append(q_body)
+            q_types.append(data[5])  
             options = data[6:10]
             candidate = np.asarray( [ options[0], options[1], options[2], options[3] ] )
             ans_candidates.append( candidate )
@@ -105,7 +104,7 @@ class VideoQADataLoader(DataLoader):
 
         self.app_feature_h5 = kwargs.pop('appearance_feat')
         self.dataset = VideoQADataset(answers, ans_candidates, questions, self.app_feature_h5, video_ids, 
-                                      record_ids, app_feat_id_to_index, 
+                                      record_ids, app_feat_id_to_index, q_types
                                       )
        
         self.batch_size = kwargs['batch_size']
