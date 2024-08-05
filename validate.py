@@ -103,7 +103,7 @@ if __name__ == '__main__':
     checkpoint_dir = "./results/sutd-traffic/ckpt"
     cfg.dataset.appearance_feat = os.path.join(cfg.dataset.data_dir, cfg.dataset.appearance_feat.format(cfg.dataset.name))
 
-    for epoch in range(48, 50):  
+    for epoch in range(50):  
         temp_ckpt = f"{checkpoint_dir}/tempaligner_{epoch}.pt"
         semantic_ckpt = f"{checkpoint_dir}/semanticaligner_{epoch}.pt"
 

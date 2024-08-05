@@ -69,6 +69,11 @@ def train(cfg, args):
         model.load_state_dict(ckpt['state_dict'])
         optimizer.load_state_dict(ckpt['optimizer'])
     logging.info("Start training........")
+    # 归一化的频率倒数作为权重
+    q_type_freq = {'U': 35178, 'A': 11094, 'C': 2824, 'R': 2470, 'I': 2380, 'F': 2514}
+    total_count = sum(q_type_freq.values())
+    q_type_weights = {q_type: (total_count / freq) / total_count for q_type, freq in q_type_freq.items()}
+
     for epoch in range(start_epoch, cfg.train.max_epochs):
         logging.info('>>>>>> epoch {epoch} <<<<<<'.format(epoch=colored("{}".format(epoch), "green", attrs=["bold"])))
         tempaligner.train()
@@ -85,6 +90,7 @@ def train(cfg, args):
         q_type_mapping = {'U': 0, 'A': 1, 'F': 2, 'R': 3, 'C': 4, 'I': 5}
         epoch_q_type_losses = {q_type: 0.0 for q_type in q_type_mapping.keys()}
         epoch_q_type_counts = {q_type: 0 for q_type in q_type_mapping.keys()}
+        epoch_q_type_weighted_losses = {q_type: 0.0 for q_type in q_type_mapping.keys()}
 
         for i, batch in enumerate(iter(train_loader)):
             progress = epoch + i / len(train_loader)
@@ -133,19 +139,23 @@ def train(cfg, args):
 
                     q_type_loss_ce = torch.max(torch.zeros_like(q_type_logits), 1.0 + q_type_logits - q_type_target_logits)
                     q_type_loss_ce = q_type_loss_ce.sum()
+                    qtype_weighted_loss = q_type_loss_ce * q_type_weights[q_type]
 
                     q_type_losses[q_type] += q_type_loss_ce
                     q_type_counts[q_type] += q_type_mask.size(0)
-
+                    epoch_q_type_weighted_losses[q_type] += qtype_weighted_loss.item()
+            qtype_avg_loss = sum(q_type_losses.values()) / sum(q_type_counts.values())
             for q_type in q_type_losses.keys():
                 epoch_q_type_losses[q_type] += q_type_losses[q_type]
                 epoch_q_type_counts[q_type] += q_type_counts[q_type]
+            total_weighted_loss = sum(epoch_q_type_weighted_losses.values())
 
             loss_ce = torch.max(torch.tensor(0.0).cuda(),
                              1.0 + logits - logits[answers_agg + torch.from_numpy(batch_agg).cuda()])
             loss_ce = loss_ce.sum()
             recon_loss = mseloss(visual_embedding_decoder, video_appearance_feat)
-            loss = 0.01*loss_ce + recon_loss
+            # loss = 0.01*loss_ce + recon_loss + total_weighted_loss
+            loss = 0.01*loss_ce + recon_loss + qtype_avg_loss
             loss.backward()
             total_loss += loss.detach()
             avg_loss = total_loss / (i + 1)
@@ -176,8 +186,8 @@ def train(cfg, args):
             optimizer = step_decay(cfg, optimizer)
         sys.stdout.flush()
         logging.info(
-            "Epoch = {:d}, Sum Loss = {:.4f}, Avg Loss = {:.4f}, CE Loss = {:.4f}, Recon Loss = {:.4f}, Avg Acc = {:.4f}".format(
-                epoch, total_loss, avg_loss, avg_ce_loss, avg_recon_loss, train_accuracy
+            "Epoch = {:d}, Sum Loss = {:.4f}, Avg Loss = {:.4f}, CE Loss = {:.4f}, Recon Loss = {:.4f}, Avg Acc = {:.4f}, Weighted Loss = {:.4f}".format(
+                epoch, total_loss, avg_loss, avg_ce_loss, avg_recon_loss, train_accuracy, total_weighted_loss
             )
         )
         # Calculate average loss per question type for the epoch

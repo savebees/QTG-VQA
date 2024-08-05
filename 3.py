@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 
 def extract_data_from_log(log_file_path):
     general_loss_pattern = re.compile(
-        r"Epoch = (\d+), Sum Loss = ([\d.]+), Avg Loss = ([\d.]+), CE Loss = ([\d.]+), Recon Loss = ([\d.]+), Avg Acc = ([\d.]+)"
+        r"Epoch = (\d+), Sum Loss = ([\d.]+), Avg Loss = ([\d.]+), CE Loss = ([\d.]+), Recon Loss = ([\d.]+), Avg Acc = ([\d.]+), Weighted Loss = ([\d.]+)"
     )
     question_type_pattern = re.compile(
         r"Epoch (\d+), Question Type (\w): Total Loss = ([\d.]+), Count = (\d+), Avg Loss = ([\d.]+)"
@@ -22,7 +22,8 @@ def extract_data_from_log(log_file_path):
                     'Avg Loss': float(general_match.group(3)),
                     'CE Loss': float(general_match.group(4)),
                     'Recon Loss': float(general_match.group(5)),
-                    'Avg Acc': float(general_match.group(6))
+                    'Avg Acc': float(general_match.group(6)),
+                    'Weighted Loss': float(general_match.group(7))
                 }
                 general_losses[epoch] = data
 
@@ -42,63 +43,49 @@ def extract_data_from_log(log_file_path):
     return general_losses, question_type_losses
 
 def plot_data(general_losses, question_type_losses):
-    # Prepare data for plotting
     epochs = list(general_losses.keys())
     sum_losses = [data['Sum Loss'] for data in general_losses.values()]
     avg_losses = [data['Avg Loss'] for data in general_losses.values()]
     ce_losses = [data['CE Loss'] for data in general_losses.values()]
     recon_losses = [data['Recon Loss'] for data in general_losses.values()]
     avg_accs = [data['Avg Acc'] for data in general_losses.values()]
+    weighted_losses = [data['Weighted Loss'] for data in general_losses.values()]
 
-    # Plot Sum Loss
-    plt.figure(figsize=(10, 5))
+    # Plot all metrics in one figure for comparison
+    plt.figure(figsize=(12, 6))
     plt.plot(epochs, sum_losses, label='Sum Loss', marker='o')
-    plt.xlabel('Epochs')
-    plt.ylabel('Sum Loss')
-    plt.title('Sum Loss Across Epochs')
-    plt.legend()
-    plt.grid(True)
-    plt.show()
-
-    # Plot Average Loss
-    plt.figure(figsize=(10, 5))
     plt.plot(epochs, avg_losses, label='Average Loss', marker='o')
-    plt.xlabel('Epochs')
-    plt.ylabel('Average Loss')
-    plt.title('Average Loss Across Epochs')
-    plt.legend()
-    plt.grid(True)
-    plt.show()
-
-    # Plot CE Loss
-    plt.figure(figsize=(10, 5))
     plt.plot(epochs, ce_losses, label='CE Loss', marker='o')
-    plt.xlabel('Epochs')
-    plt.ylabel('CE Loss')
-    plt.title('CE Loss Across Epochs')
-    plt.legend()
-    plt.grid(True)
-    plt.show()
-
-    # Plot Reconstruction Loss
-    plt.figure(figsize=(10, 5))
     plt.plot(epochs, recon_losses, label='Reconstruction Loss', marker='o')
+    plt.plot(epochs, avg_accs, label='Average Accuracy', marker='o', color='green')
+    plt.plot(epochs, weighted_losses, label='Weighted Loss', marker='o', color='purple')
     plt.xlabel('Epochs')
-    plt.ylabel('Reconstruction Loss')
-    plt.title('Reconstruction Loss Across Epochs')
+    plt.ylabel('Metrics')
+    plt.title('Training Metrics Across Epochs')
     plt.legend()
     plt.grid(True)
     plt.show()
 
-    # Plot Average Accuracy
-    plt.figure(figsize=(10, 5))
-    plt.plot(epochs, avg_accs, label='Average Accuracy', marker='o', color='green')
-    plt.xlabel('Epochs')
-    plt.ylabel('Average Accuracy')
-    plt.title('Average Accuracy Across Epochs')
-    plt.legend()
-    plt.grid(True)
-    plt.show()
+    # Individual plots for each metric
+    metrics = {
+        'Sum Loss': sum_losses,
+        'Average Loss': avg_losses,
+        'CE Loss': ce_losses,
+        'Reconstruction Loss': recon_losses,
+        'Average Accuracy': avg_accs,
+        'Weighted Loss': weighted_losses
+    }
+
+    for label, values in metrics.items():
+        plt.figure(figsize=(10, 5))
+        plt.plot(epochs, values, label=label, marker='o', color='blue')
+        plt.xlabel('Epochs')
+        plt.ylabel(label)
+        plt.title(f'{label} Across Epochs')
+        plt.legend()
+        plt.grid(True)
+        plt.show()
+    
 
     # Plot question type losses
     plt.figure(figsize=(10, 5))
