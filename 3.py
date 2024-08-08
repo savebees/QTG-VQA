@@ -1,9 +1,14 @@
+"""
+作用: 从 stdout.log 绘制 loss 曲线
+"""
+
+
 import re
 import matplotlib.pyplot as plt
 
 def extract_data_from_log(log_file_path):
     general_loss_pattern = re.compile(
-        r"Epoch = (\d+), Sum Loss = ([\d.]+), Avg Loss = ([\d.]+), CE Loss = ([\d.]+), Recon Loss = ([\d.]+), Avg Acc = ([\d.]+), Weighted Loss = ([\d.]+)"
+        r"Epoch = (\d+), Sum Loss = ([\d.]+), Avg Loss = ([\d.]+), CE Loss = ([\d.]+), Recon Loss = ([\d.]+), Avg Acc = ([\d.]+), Weighted Loss = ([\d.]+), Qtype_avg Loss = ([\d.]+)"
     )
     question_type_pattern = re.compile(
         r"Epoch (\d+), Question Type (\w): Total Loss = ([\d.]+), Count = (\d+), Avg Loss = ([\d.]+)"
@@ -23,7 +28,8 @@ def extract_data_from_log(log_file_path):
                     'CE Loss': float(general_match.group(4)),
                     'Recon Loss': float(general_match.group(5)),
                     'Avg Acc': float(general_match.group(6)),
-                    'Weighted Loss': float(general_match.group(7))
+                    'Weighted Loss': float(general_match.group(7)),
+                    'Qtype_avg Loss': float(general_match.group(8))
                 }
                 general_losses[epoch] = data
 
@@ -50,6 +56,7 @@ def plot_data(general_losses, question_type_losses):
     recon_losses = [data['Recon Loss'] for data in general_losses.values()]
     avg_accs = [data['Avg Acc'] for data in general_losses.values()]
     weighted_losses = [data['Weighted Loss'] for data in general_losses.values()]
+    qtype_avg_losses = [data['Qtype_avg Loss'] for data in general_losses.values()]
 
     # Plot all metrics in one figure for comparison
     plt.figure(figsize=(12, 6))
@@ -59,6 +66,7 @@ def plot_data(general_losses, question_type_losses):
     plt.plot(epochs, recon_losses, label='Reconstruction Loss', marker='o')
     plt.plot(epochs, avg_accs, label='Average Accuracy', marker='o', color='green')
     plt.plot(epochs, weighted_losses, label='Weighted Loss', marker='o', color='purple')
+    plt.plot(epochs, qtype_avg_losses, label='Qtype_avg Loss', marker='o', color='cyan')
     plt.xlabel('Epochs')
     plt.ylabel('Metrics')
     plt.title('Training Metrics Across Epochs')
@@ -73,7 +81,8 @@ def plot_data(general_losses, question_type_losses):
         'CE Loss': ce_losses,
         'Reconstruction Loss': recon_losses,
         'Average Accuracy': avg_accs,
-        'Weighted Loss': weighted_losses
+        'Weighted Loss': weighted_losses,
+        'Qtype_avg Loss': qtype_avg_losses
     }
 
     for label, values in metrics.items():

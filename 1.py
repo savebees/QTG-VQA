@@ -1,3 +1,7 @@
+"""
+作用: 当 write_preds = True 时，从预测结果文件计算各问题类型准确率
+"""
+
 import json
 
 # 从 JSONL 文件中读取数据

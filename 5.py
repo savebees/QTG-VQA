@@ -1,3 +1,7 @@
+"""
+作用: 从 validation_log.txt 绘制 acc 曲线（高亮最好的epoch）
+"""
+
 import re
 import matplotlib.pyplot as plt
 import numpy as np
